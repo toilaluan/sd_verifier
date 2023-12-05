@@ -21,12 +21,12 @@ app = FastAPI()
 @app.post("/verify")
 async def get_rewards(data: Prompt):
     generator = torch.Generator().manual_seed(data.seed)
-    miner_images = [base64_to_pil_image(image) for image in data.images]
+    # miner_images = [base64_to_pil_image(image) for image in data.images]
     # validator_images = pipe(prompt=data.prompt, generator=generator, **data.additional_params).images
     # reward = matching_images(miner_images, validator_images)
     reward = 1
     print("Verify Result:", reward, flush=True)
-    return {'verify_result': reward}
+    return {'reward': reward}
 
 if __name__ == "__main__":
     import uvicorn
