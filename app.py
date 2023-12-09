@@ -6,6 +6,8 @@ from typing import List
 from utils import pil_image_to_base64, base64_to_pil_image
 from matching_hash import matching_images
 from pydantic import BaseModel
+import uvicorn
+import argparse
 
 class Prompt(BaseModel):
     prompt: str
@@ -28,5 +30,7 @@ async def get_rewards(data: Prompt):
     return {'verify_result': reward}
 
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--port", type=int, default=10002)
+    args = parser.parse_args()
+    uvicorn.run(app, host="0.0.0.0", port=args.port)
