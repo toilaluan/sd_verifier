@@ -1,6 +1,4 @@
 from fastapi import FastAPI, Request, Response, Depends
-from fastapi_limiter import FastAPILimiter
-from fastapi_limiter.depends import RateLimiter
 from diffusers import StableDiffusionXLPipeline
 from PIL import Image
 import torch
@@ -13,6 +11,9 @@ import argparse
 import requests
 import time
 import threading
+from slowapi.errors import RateLimitExceeded
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
 
 class Prompt(BaseModel):
     prompt: str
@@ -21,11 +22,16 @@ class Prompt(BaseModel):
     additional_params: dict = {}
 
 app = FastAPI()
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 pipe = StableDiffusionXLPipeline.from_single_file("model.safetensors")
 pipe.enable_model_cpu_offload()
 pipe.to("cuda")
 
 @app.middleware("http")
+@limiter.limit("30/minute")
 async def filter_allowed_ips(request: Request, call_next):
     print(str(request.url))
     if (request.client.host not in ALLOWED_IPS) and (request.client.host != "127.0.0.1"):
@@ -34,7 +40,7 @@ async def filter_allowed_ips(request: Request, call_next):
     response = await call_next(request)
     return response
 
-@app.post("/verify", dependencies=[Depends(RateLimiter(times=30, seconds=60))])
+@app.post("/verify")
 async def get_rewards(data: Prompt):
     generator = torch.Generator().manual_seed(data.seed)
     miner_images = [base64_to_pil_image(image) for image in data.images]
