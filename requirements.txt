@@ -7,3 +7,4 @@ numpy==1.26.2
 uvicorn==0.24.0.post1
 omegaconf==2.3.0
 accelerate
+slowapi
