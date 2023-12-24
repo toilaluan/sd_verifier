@@ -10,10 +10,16 @@ import uvicorn
 import argparse
 import requests
 import time
+import os
 import threading
 from slowapi.errors import RateLimitExceeded
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
+from dotenv import load_dotenv
+
+load_dotenv()
+
+CHAIN_ENDPOINT = os.getenv("CHAIN_ENDPOINT")
 
 class Prompt(BaseModel):
     prompt: str
@@ -53,18 +59,21 @@ def define_allowed_ips(url):
     global ALLOWED_IPS
     ALLOWED_IPS = []
     while True:
-        response = requests.get(f"{url}/get_allowed_ips")
-        response = response.json()
-        ALLOWED_IPS = response['allowed_ips']
+        all_allowed_ips = []
+        subtensor = bt.subtensor(CHAIN_ENDPOINT)
+        metagraph = subtensor.metagraph(args.netuid)
+        for uid in range(len(metagraph.total_stake)):
+            if metagraph.total_stake[uid] > args.min_stake:
+                all_allowed_ips.append(metagraph.axons[uid].ip)
+        ALLOWED_IPS = all_allowed_ips
         print("Updated allowed ips:", ALLOWED_IPS, flush=True)
         time.sleep(60)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=10002)
-    parser.add_argument("--subnet_outbound_url", type=str, default="http://20.210.111.232:10005")
     args = parser.parse_args()
-    allowed_ips_thread = threading.Thread(target=define_allowed_ips, args=(args.subnet_outbound_url,))
+    allowed_ips_thread = threading.Thread(target=define_allowed_ips, args=(CHAIN_ENDPOINT,))
     allowed_ips_thread.setDaemon(True)
     allowed_ips_thread.start()
     uvicorn.run(app, host="0.0.0.0", port=args.port)
