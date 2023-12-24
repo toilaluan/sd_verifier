@@ -2,6 +2,16 @@ import io
 import numpy as np
 import base64
 from PIL import Image
+import pycurl
+from io import BytesIO
+
+def download_file(url, file_name):
+    with open(file_name, 'wb') as file:
+        c = pycurl.Curl()
+        c.setopt(c.URL, url)
+        c.setopt(c.WRITEDATA, file)
+        c.perform()
+        c.close()
 
 def pil_image_to_base64(image: Image.Image) -> str:
     image_stream = io.BytesIO()    
