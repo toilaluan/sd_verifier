@@ -25,23 +25,26 @@ CHAIN_ENDPOINT = os.getenv("CHAIN_ENDPOINT")
 MODEL_CONFIG = yaml.load(open("model_config.yaml"), yaml.FullLoader)
 CKPT_DIR = "checkpoints"
 
+
 def load_model(model_name):
     file = os.path.join(CKPT_DIR, model_name) + ".safetensors"
     print(file)
     pipe = StableDiffusionPipeline.from_single_file(file, use_safetensors=True)
-    pipe.enable_model_cpu_offload()
     pipe.to("cuda")
     return pipe
+
 
 for model_name in MODEL_CONFIG:
     load_model(model_name)
 
+
 class Prompt(BaseModel):
     prompt: str
     seed: int
-    images: List[str]
+    images: List[List[str]]
     model_name: str
     additional_params: dict = {}
+
 
 app = FastAPI()
 limiter = Limiter(key_func=get_remote_address)
@@ -51,16 +54,23 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 PIPE = None
 CURRENT_MODEL = ""
 
+
 @app.middleware("http")
 @limiter.limit("30/minute")
 async def filter_allowed_ips(request: Request, call_next):
     print(str(request.url))
-    if (request.client.host not in ALLOWED_IPS) and (request.client.host != "127.0.0.1"):
+    if (request.client.host not in ALLOWED_IPS) and (
+        request.client.host != "127.0.0.1"
+    ):
         print(f"A unallowed ip:", request.client.host, flush=True)
-        return Response(content="You do not have permission to access this resource", status_code=403)
+        return Response(
+            content="You do not have permission to access this resource",
+            status_code=403,
+        )
     print(f"A allowed ip:", request.client.host, flush=True)
     response = await call_next(request)
     return response
+
 
 @app.post("/verify")
 async def get_rewards(data: Prompt):
@@ -71,11 +81,24 @@ async def get_rewards(data: Prompt):
         PIPE = load_model(data.model_name)
         CURRENT_MODEL = data.model_name
     generator = torch.Generator().manual_seed(data.seed)
-    miner_images = [base64_to_pil_image(image) for image in data.images]
-    validator_images = PIPE(prompt=data.prompt, generator=generator, **data.additional_params).images
-    reward = matching_images(miner_images, validator_images)
-    print("Verify Result:", reward, flush=True)
-    return {'reward': reward}
+    validator_images = PIPE(
+        prompt=data.prompt, generator=generator, **data.additional_params
+    ).images
+    rewards = []
+    for miner_images in data.images:
+        try:
+            miner_images = [base64_to_pil_image(image) for image in miner_images]
+            reward = matching_images(miner_images, validator_images)
+            if not reward:
+                miner_images[0].save("miner_image.png")
+                validator_images[0].save("validator_image.png")
+            print("Verify Result:", reward, flush=True)
+        except Exception as e:
+            print(e, flush=True)
+            reward = 0
+        rewards.append(reward)
+    return {"rewards": rewards}
+
 
 def define_allowed_ips(url, args):
     global ALLOWED_IPS
@@ -91,13 +114,20 @@ def define_allowed_ips(url, args):
         print("Updated allowed ips:", ALLOWED_IPS, flush=True)
         time.sleep(60)
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=10002)
     parser.add_argument("--netuid", type=str, default=1)
     parser.add_argument("--min_stake", type=int, default=100)
     args = parser.parse_args()
-    allowed_ips_thread = threading.Thread(target=define_allowed_ips, args=(CHAIN_ENDPOINT, args,))
+    allowed_ips_thread = threading.Thread(
+        target=define_allowed_ips,
+        args=(
+            CHAIN_ENDPOINT,
+            args,
+        ),
+    )
     allowed_ips_thread.setDaemon(True)
     allowed_ips_thread.start()
     uvicorn.run(app, host="0.0.0.0", port=args.port)
